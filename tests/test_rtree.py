@@ -7,7 +7,7 @@ import sys
 # Ensure import of tree from the parent directory
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from tree import RepoTreeVisualizer
+from rtree import RepoTreeVisualizer
 
 class TestRepoTree(unittest.TestCase):
     
