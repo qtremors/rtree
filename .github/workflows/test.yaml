@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    # rtree relies on git commands, so we configure a dummy user for the CI environment
+    - name: Configure Git user
+      run: |
+        git config --global user.email "ci@repotree.com"
+        git config --global user.name "RepoTree CI"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # Install rtree in editable mode
+        pip install -e .
+
+    - name: Run Tests
+      run: |
+        # Auto-discover and run all tests in the 'tests' folder
+        python -m unittest discover tests

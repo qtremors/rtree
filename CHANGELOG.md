@@ -1,10 +1,15 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
 
-The format is based on Keep a Changelog,
+## [1.1.0] - 2025-12-04
 
-and this project adheres to Semantic Versioning.
+### Added
+
+- **Performance Engine**: Implemented "Eager Pruning" (Hybrid Mode). The tool now uses internal pattern matching to skip massive folders (like `node_modules` or `venv`) *before* asking Git about them. This drastically speeds up scans on large repositories.
+- **UX**: Added a CLI spinner animation (`| / - \`) to indicate activity during long scans.
+- **UX**: Added graceful handling for `Ctrl+C` (KeyboardInterrupt). The tool now exits cleanly without printing a traceback.
+- **Quality**: Added a comprehensive unit test suite in `tests/test_rtree.py` covering flat lists, ASCII generation, and gitignore fallbacks.
+- **CI/CD**: Added GitHub Actions workflow (`.github/workflows/test.yml`) to automatically run tests across Python 3.8–3.12 on every push.
 
 ## [1.0.0] - 2025-11-20
 

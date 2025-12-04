@@ -40,14 +40,14 @@ cd file-tree-generator
 pip install -e .
 ```
 
-_The `-e` flag stands for "editable". It links the global command to your local file, so any changes you make to `tree.py` apply immediately._
+_The `-e` flag stands for "editable". It links the global command to your local file, so any changes you make to `rtree.py` apply immediately._
 
 ### 2. Standalone Usage
 
 If you do not wish to install it, you can simply run the script using Python:
 
 ```python
-python tree.py [arguments]
+python rtree.py [arguments]
 ```
 
 
@@ -164,11 +164,9 @@ The script relies on the `RepoTreeVisualizer` class to handle scanning and filte
 
 1. **Initialization:** The script accepts a target repository path (`--repo`). If omitted, it defaults to the current working directory. It immediately locates the `.gitignore` file.
     
-2. **Ignore Calculation (`_compute_ignored_set`):**
-    
-    - **Primary Method:** It attempts to run `git check-ignore --stdin` via Python's `subprocess` module. This ensures 100% parity with Git behavior.
-        
-    - **Secondary Method (Fallback):** If Git is missing, it falls back to `_simple_gitignore_match`. It compiles patterns using `fnmatch` to approximate Git's matching rules.
+2. **Hybrid Ignore Calculation:**
+    - **Phase 1 (Eager Pruning):** As the script walks the directory, it immediately skips known heavy folders (like `node_modules` or `venv`) using internal pattern matching. This prevents unnecessary scanning of thousands of files.
+    - **Phase 2 (Git Precision):** For the remaining files, it queries `git check-ignore` to ensure 100% parity with your `.gitignore` rules (handling negations and complex overrides correctly).
         
 3. **Traversal:**
     
@@ -192,68 +190,68 @@ The script relies on the `RepoTreeVisualizer` class to handle scanning and filte
     # --- Basic Usage ---
     # Scan the current directory
     rtree
-    python tree.py
+    python rtree.py
 
     # Scan a specific subdirectory
     rtree -r my-project
-    python tree.py -r my-project
+    python rtree.py -r my-project
 
     # Scan an absolute path
     rtree -r "C:/Projects/App"
-    python tree.py -r "C:/Projects/App"
+    python rtree.py -r "C:/Projects/App"
 
     # --- Depth Control ---
     # Limit tree to 2 levels deep (great for large repos)
     rtree --depth 2
-    python tree.py --depth 2
+    python rtree.py --depth 2
 
     # Combine specific target with depth limit
     rtree -r src --depth 3
-    python tree.py -r src --depth 3
+    python rtree.py -r src --depth 3
 
     # --- Output to File ---
     # Auto-name the output file (e.g., 'folder_tree.txt')
     rtree -o
-    python tree.py -o
+    python rtree.py -o
 
     # Save to a specific filename
     rtree -o structure.txt
-    python tree.py -o structure.txt
+    python rtree.py -o structure.txt
 
     # Scan 'src' and save to 'src.txt'
     rtree -r src -o src.txt
-    python tree.py -r src -o src.txt
+    python rtree.py -r src -o src.txt
 
     # --- Flat List Mode ---
     # Output a flat list of file paths instead of a tree
     rtree --flat
-    python tree.py --flat
+    python rtree.py --flat
 
     # Save the flat list to a file
     rtree --flat -o list.txt
-    python tree.py --flat -o list.txt
+    python rtree.py --flat -o list.txt
 
     # --- Raw / Debug Mode ---
     # Ignore .gitignore rules (shows .git, venv, etc.)
     rtree --raw
-    python tree.py --raw
+    python rtree.py --raw
 
     # See top-level hidden files only
     rtree --raw --depth 1
-    python tree.py --raw --depth 1
+    python rtree.py --raw --depth 1
 
     # Flat list of every file on disk (ignoring rules)
     rtree --raw --flat
-    python tree.py --raw --flat
+    python rtree.py --raw --flat
 
     # --- Utilities ---
     # List all git repositories found in the current directory
     rtree --list
-    python tree.py --list
+    python rtree.py --list
 
     # Force disable colored output in the terminal
     rtree --no-color
-    python tree.py --no-color
+    python rtree.py --no-color
 ```
 
 

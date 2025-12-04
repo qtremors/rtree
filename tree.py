@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-tree.py
+rtree.py
 
 Generates a plain-text folder/file tree for a specified directory.
 Can handle Git repositories (respecting .gitignore) and standard folders.
@@ -32,68 +32,68 @@ Commands:
     # --- Basic Usage ---
     # Scan the current directory
     rtree
-    python tree.py
+    python rtree.py
 
     # Scan a specific subdirectory
     rtree -r my-project
-    python tree.py -r my-project
+    python rtree.py -r my-project
 
     # Scan an absolute path
     rtree -r "C:/Projects/App"
-    python tree.py -r "C:/Projects/App"
+    python rtree.py -r "C:/Projects/App"
 
     # --- Depth Control ---
     # Limit tree to 2 levels deep (great for large repos)
     rtree --depth 2
-    python tree.py --depth 2
+    python rtree.py --depth 2
 
     # Combine specific target with depth limit
     rtree -r src --depth 3
-    python tree.py -r src --depth 3
+    python rtree.py -r src --depth 3
 
     # --- Output to File ---
     # Auto-name the output file (e.g., 'folder_tree.txt')
     rtree -o
-    python tree.py -o
+    python rtree.py -o
 
     # Save to a specific filename
     rtree -o structure.txt
-    python tree.py -o structure.txt
+    python rtree.py -o structure.txt
 
     # Scan 'src' and save to 'src.txt'
     rtree -r src -o src.txt
-    python tree.py -r src -o src.txt
+    python rtree.py -r src -o src.txt
 
     # --- Flat List Mode ---
     # Output a flat list of file paths instead of a tree
     rtree --flat
-    python tree.py --flat
+    python rtree.py --flat
 
     # Save the flat list to a file
     rtree --flat -o list.txt
-    python tree.py --flat -o list.txt
+    python rtree.py --flat -o list.txt
 
     # --- Raw / Debug Mode ---
     # Ignore .gitignore rules (shows .git, venv, etc.)
     rtree --raw
-    python tree.py --raw
+    python rtree.py --raw
 
     # See top-level hidden files only
     rtree --raw --depth 1
-    python tree.py --raw --depth 1
+    python rtree.py --raw --depth 1
 
     # Flat list of every file on disk (ignoring rules)
     rtree --raw --flat
-    python tree.py --raw --flat
+    python rtree.py --raw --flat
 
     # --- Utilities ---
     # List all git repositories found in the current directory
     rtree --list
-    python tree.py --list
+    python rtree.py --list
 
     # Force disable colored output in the terminal
     rtree --no-color
-    python tree.py --no-color
+    python rtree.py --no-color
 """
 
 from __future__ import annotations
@@ -101,6 +101,8 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import os
+import itertools
+import time
 import subprocess
 import sys
 from typing import Dict, List, Optional, Set, Tuple
@@ -136,11 +138,13 @@ class RepoTreeVisualizer:
         raw_mode: bool = False,
         max_depth: int = -1,
         use_color: bool = True,
+        callback=None,
     ):
         self.repo_path = os.path.abspath(repo_path)
         self.raw_mode = raw_mode
         self.max_depth = max_depth
         self.use_color = use_color
+        self.callback = callback
         self.gitignore_patterns = self._read_gitignore()
 
         # Pre-compute ignored files logic
@@ -239,45 +243,62 @@ class RepoTreeVisualizer:
                 )
         return False
 
-    def _collect_all_relpaths(self) -> List[str]:
+    def _collect_all_relpaths(
+        self, prune_patterns: List[Tuple[str, bool, bool]] = None
+    ) -> Tuple[List[str], Set[str]]:
         rels = []
+        early_ignored = set()
+
         try:
             for dirpath, dirnames, filenames in os.walk(self.repo_path, topdown=True):
+                if self.callback: self.callback()
                 rel_dir = os.path.relpath(dirpath, self.repo_path)
                 if rel_dir == ".":
                     rel_dir = ""
                 else:
-                    rels.append(rel_dir.replace(os.sep, "/"))
+                    rel_dir = rel_dir.replace(os.sep, "/")
+                    rels.append(rel_dir)
+
+                if prune_patterns:
+                    active_dirs = []
+                    for d in dirnames:
+                        path_to_check = (rel_dir + "/" + d) if rel_dir else d
+                        if self._simple_gitignore_match(path_to_check, prune_patterns):
+                            early_ignored.add(path_to_check)
+                        else:
+                            active_dirs.append(d)
+                    dirnames[:] = active_dirs
+
                 for f in filenames:
                     rels.append(
                         (rel_dir + "/" + f if rel_dir else f).replace(os.sep, "/")
                     )
         except PermissionError:
             pass
-        return rels
+        return rels, early_ignored
 
     def _compute_ignored_set(self) -> Set[str]:
-        all_rel = self._collect_all_relpaths()
+        compiled = self._compile_simple_patterns()
+
+        all_rel, early_ignored = self._collect_all_relpaths(prune_patterns=compiled)
+
         ignored: Set[str] = {r for r in all_rel if r.startswith(".git/")}
+        ignored.update(early_ignored)
 
         if self._is_git_repo():
             ig = self._git_check_ignore(all_rel)
             if ig:
                 ignored.update(p.replace("\\", "/") for p in ig if p)
                 ignored.discard(".gitignore")
-                # Expand
-                final = set()
-                for r in all_rel:
-                    for ign in ignored:
-                        if ign == r or r.startswith(ign.rstrip("/") + "/"):
-                            final.add(r)
-                            break
-                final.update(ignored)
-                return {
-                    x.rstrip("/") for x in final if x != ".git" and x != ".gitignore"
-                }
+        else:
+            for r in all_rel:
+                if r == ".gitignore" or r.startswith(".git/"):
+                    continue
+                if self._simple_gitignore_match(r, compiled):
+                    ignored.add(r)
 
-        # Fallback
+        return {x.rstrip("/") for x in ignored if x != ".git" and x != ".gitignore"}
+
         compiled = self._compile_simple_patterns()
         for r in all_rel:
             if r == ".gitignore" or r.startswith(".git/"):
@@ -287,7 +308,6 @@ class RepoTreeVisualizer:
             if self._simple_gitignore_match(r, compiled):
                 ignored.add(r)
 
-        # Final cleanup
         return {x.rstrip("/") for x in ignored if x != ".git" and x != ".gitignore"}
 
     # -------------------------------------------------------------------------
@@ -473,7 +493,6 @@ def main():
     cwd = os.getcwd()
 
     if args.list:
-        # Simple list logic
         try:
             repos = [
                 n
@@ -498,34 +517,74 @@ def main():
         sys.exit(2)
 
     # Determine if we should use color
-    # Force no-color if writing to file to avoid ANSI codes in text file
     out_arg = args.out
     writing_to_file = out_arg is not None
     use_color = not args.no_color and not writing_to_file
 
-    visualizer = RepoTreeVisualizer(
-        repo_path, raw_mode=bool(args.raw), max_depth=args.depth, use_color=use_color
-    )
+    # --- Spinner Setup ---
+    spinner_active = not writing_to_file and sys.stdout.isatty()
+    msg = f"rtree: scanning {repo_path}..."
+    spinner = itertools.cycle(["|", "/", "-", "\\"])
+    last_spin = 0
 
-    output_lines = (
-        visualizer.get_flat_list() if args.flat else visualizer.get_ascii_tree()
-    )
+    def update_spinner():
+        nonlocal last_spin
+        if not spinner_active:
+            return
+        now = time.time()
+        if now - last_spin > 0.1:
+            sys.stdout.write(
+                Colors.style(f"\r{msg} {next(spinner)}", Colors.CYAN, use_color)
+            )
+            sys.stdout.flush()
+            last_spin = now
 
-    if writing_to_file:
-        outname = (
-            auto_out_name(repo_path, not args.flat, args.flat, args.raw)
-            if out_arg is True
-            else out_arg
+    if spinner_active:
+        sys.stdout.write("\033[?25l") # Hide Cursor
+        sys.stdout.write(Colors.style(msg, Colors.CYAN, use_color))
+        sys.stdout.flush()
+
+    try:
+        # Pass the callback to the visualizer
+        visualizer = RepoTreeVisualizer(
+            repo_path, 
+            raw_mode=bool(args.raw), 
+            max_depth=args.depth, 
+            use_color=use_color,
+            callback=update_spinner
         )
-        try:
-            with open(outname, "w", encoding="utf-8") as f:
-                f.write("\n".join(output_lines) + "\n")
-            print(f"Output written to: {Colors.style(str(outname), Colors.GREEN)}")
-        except Exception as e:
-            print(f"Error writing to '{outname}': {e}", file=sys.stderr)
-    else:
-        print("\n".join(output_lines))
 
+        output_lines = (
+            visualizer.get_flat_list() if args.flat else visualizer.get_ascii_tree()
+        )
+        
+        # Clear spinner line
+        if spinner_active:
+            sys.stdout.write(f"\r{' ' * (len(msg) + 5)}\r")
+            sys.stdout.flush()
+
+        if writing_to_file:
+            outname = (
+                auto_out_name(repo_path, not args.flat, args.flat, args.raw)
+                if out_arg is True
+                else out_arg
+            )
+            try:
+                with open(outname, "w", encoding="utf-8") as f:
+                    f.write("\n".join(output_lines) + "\n")
+                print(f"Output written to: {Colors.style(str(outname), Colors.GREEN)}")
+            except Exception as e:
+                print(f"Error writing to '{outname}': {e}", file=sys.stderr)
+        else:
+            print("\n".join(output_lines))
+
+    finally:
+        if spinner_active:
+            sys.stdout.write("\033[?25h") # Show Cursor
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n" + Colors.style("⚠ Tree generation interrupted.", Colors.YELLOW))
+        sys.exit(0)
